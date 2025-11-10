@@ -1,0 +1,14 @@
+beautifulsoup4>=4.9.3
+lxml>=4.6.3
+requests>=2.25.1
+selenium>=4.0.0
+PyExecJS>=1.5.1
+Pillow>=8.2.0
+cryptography>=35.0.0
+python-docx>=0.8.11
+markdown>=3.3.4
+colorama>=0.4.4
+urllib3>=1.26.7
+validators>=0.18.2
+tqdm>=4.62.3
+chardet>=4.0.0
