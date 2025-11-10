@@ -408,3 +408,4 @@ class SpecialHidingDetector:
             context = context.replace(char, '')
         
         return context
+        

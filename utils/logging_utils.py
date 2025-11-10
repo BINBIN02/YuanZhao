@@ -226,3 +226,4 @@ def log_summary(logger, total_files, scanned_files, issues_found, scan_time):
         logger.warning(f"发现少量问题 ({issues_found})，建议查看")
     else:
         logger.info("未发现明显问题")
+        

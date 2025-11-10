@@ -446,3 +446,4 @@ def remove_comments(js_content: str) -> str:
         移除注释后的代码
     """
     return strip_comments(js_content)
+    

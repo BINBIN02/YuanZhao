@@ -529,3 +529,4 @@ class HTMLDetector:
                         results.append(result)
         
         return results
+        

@@ -609,3 +609,4 @@ class Reporter:
         except Exception as e:
             logger.error(f"读取日志文件异常: {str(e)}", exc_info=True)
             return f"读取日志文件时发生错误: {str(e)}\n详细信息: {repr(e)}"
+            

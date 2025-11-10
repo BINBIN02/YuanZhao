@@ -475,3 +475,4 @@ def calculate_entropy(text: str) -> float:
     except Exception as e:
         logger.error(f"计算熵值失败: {str(e)}")
         return 0.0
+        

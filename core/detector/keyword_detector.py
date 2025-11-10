@@ -264,3 +264,4 @@ class KeywordDetector:
         self.keywords = []
         self.keyword_patterns = []
         logger.info("已清空所有关键字")
+        
