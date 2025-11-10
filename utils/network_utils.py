@@ -1,0 +1,473 @@
+# -*- coding: utf-8 -*-
+
+"""
+网络处理工具模块
+"""
+
+import os
+import re
+import logging
+import requests
+from typing import Dict, List, Tuple, Optional, Any
+from urllib.parse import urlparse, urljoin
+
+logger = logging.getLogger('YuanZhao.utils.network')
+
+# 常见URL模式正则表达式
+URL_PATTERNS = [
+    # 标准URL
+    re.compile(r'https?://[\w\-\.]+(?:\.[\w\-]+)+[\w\-\._~:/?#[\]@!\$&\'\(\)\*\+,;=.]+'),
+    # 相对路径URL
+    re.compile(r'\\/\\/[\w\-\.]+(?:\.[\w\-]+)+[\w\-\._~:/?#[\]@!\$&\'\(\)\*\+,;=.]+'),
+    # 仅域名
+    re.compile(r'[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\.?'),
+    # IP地址形式
+    re.compile(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b(?::\d{1,5})?'),
+]
+
+def extract_urls(text: str, base_url: Optional[str] = None) -> List[Dict[str, str]]:
+    """
+    从文本中提取URL
+    
+    Args:
+        text: 要提取URL的文本
+        base_url: 基础URL，用于解析相对路径
+    
+    Returns:
+        URL列表，每项包含原始URL、规范化URL和URL类型
+    """
+    extracted_urls = []
+    processed_urls = set()  # 用于去重
+    
+    try:
+        for pattern in URL_PATTERNS:
+            matches = pattern.finditer(text)
+            
+            for match in matches:
+                original_url = match.group(0)
+                start_pos = match.start(0)
+                end_pos = match.end(0)
+                
+                # 去重
+                if original_url.lower() in processed_urls:
+                    continue
+                processed_urls.add(original_url.lower())
+                
+                # 规范化URL
+                normalized_url = normalize_url(original_url, base_url)
+                
+                # 确定URL类型
+                url_type = get_url_type(original_url)
+                
+                extracted_urls.append({
+                    'original': original_url,
+                    'normalized': normalized_url,
+                    'type': url_type,
+                    'position': (start_pos, end_pos)
+                })
+        
+    except Exception as e:
+        logger.error(f"提取URL失败: {str(e)}")
+    
+    return extracted_urls
+
+def normalize_url(url: str, base_url: Optional[str] = None) -> str:
+    """
+    规范化URL
+    
+    Args:
+        url: 原始URL
+        base_url: 基础URL，用于解析相对路径
+    
+    Returns:
+        规范化后的URL
+    """
+    try:
+        # 处理双斜杠开头的URL
+        if url.startswith('//'):
+            return f'http:{url}'
+        
+        # 处理相对路径
+        if base_url and not (url.startswith('http://') or url.startswith('https://')):
+            return urljoin(base_url, url)
+        
+        # 对于纯域名，添加http://
+        parsed = urlparse(url)
+        if not parsed.scheme:
+            return f'http://{url}'
+        
+        return url
+        
+    except Exception as e:
+        logger.error(f"规范化URL失败: {url}, 错误: {str(e)}")
+        return url
+
+def get_url_type(url: str) -> str:
+    """
+    获取URL类型
+    
+    Args:
+        url: URL字符串
+    
+    Returns:
+        URL类型
+    """
+    if url.startswith('http://') or url.startswith('https://'):
+        return 'absolute'
+    elif url.startswith('//'):
+        return 'protocol-relative'
+    elif url.startswith('/'):
+        return 'root-relative'
+    else:
+        return 'relative'
+
+def check_url_reachability(url: str, timeout: int = 5, headers: Optional[Dict] = None) -> Tuple[bool, Optional[str]]:
+    """
+    检查URL是否可达
+    
+    Args:
+        url: 要检查的URL
+        timeout: 超时时间（秒）
+        headers: 请求头
+    
+    Returns:
+        (是否可达, 状态码或错误信息)
+    """
+    try:
+        if headers is None:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+        
+        response = requests.head(url, timeout=timeout, headers=headers, allow_redirects=True)
+        return response.status_code < 400, str(response.status_code)
+        
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"URL检查失败: {url}, 错误: {str(e)}")
+        return False, str(e)
+
+def validate_url(url: str) -> bool:
+    """
+    验证URL格式是否有效
+    
+    Args:
+        url: 要验证的URL
+    
+    Returns:
+        URL是否有效
+    """
+    try:
+        result = urlparse(url)
+        
+        # 对于绝对URL，需要有scheme和netloc
+        if url.startswith('http://') or url.startswith('https://'):
+            return all([result.scheme, result.netloc])
+        
+        # 对于相对URL，返回True
+        return True
+        
+    except Exception as e:
+        logger.error(f"URL验证失败: {url}, 错误: {str(e)}")
+        return False
+
+def get_domain(url: str) -> Optional[str]:
+    """
+    从URL中提取域名
+    
+    Args:
+        url: URL字符串
+    
+    Returns:
+        域名
+    """
+    try:
+        parsed = urlparse(url)
+        return parsed.netloc
+    except Exception as e:
+        logger.error(f"提取域名失败: {url}, 错误: {str(e)}")
+        return None
+
+def is_external_link(url: str, base_domain: str) -> bool:
+    """
+    判断是否为外部链接
+    
+    Args:
+        url: 要检查的URL
+        base_domain: 基础域名
+    
+    Returns:
+        是否为外部链接
+    """
+    url_domain = get_domain(url)
+    if not url_domain or not base_domain:
+        return False
+    
+    # 检查url_domain是否为同一域名或子域名
+    return not (url_domain == base_domain or url_domain.endswith(f'.{base_domain}'))
+
+# 兼容性函数，用于判断字符串是否为URL
+def is_url(text: str) -> bool:
+    """
+    判断字符串是否为URL
+    
+    Args:
+        text: 要检查的文本
+    
+    Returns:
+        是否为URL
+    """
+    try:
+        # 首先检查是否为本地文件，如果是，直接返回False
+        if os.path.isfile(text) or os.path.isdir(text):
+            logger.info(f"{text} 是本地文件或目录，不视为URL")
+            return False
+        
+        # 检查是否以http://或https://开头
+        if text.startswith(('http://', 'https://')):
+            return True
+        
+        # 检查是否通过URL格式验证
+        if not validate_url(text):
+            return False
+        
+        # 检查是否匹配至少一个URL模式
+        for pattern in URL_PATTERNS:
+            if pattern.search(text):
+                return True
+        
+        return False
+    except Exception as e:
+        logger.error(f"URL检查失败: {text}, 错误: {str(e)}")
+        return False
+
+# 兼容性函数，validate_url的别名
+def is_valid_url(url: str) -> bool:
+    """
+    验证URL格式是否有效（validate_url的别名）
+    
+    Args:
+        url: 要验证的URL
+    
+    Returns:
+        URL是否有效
+    """
+    return validate_url(url)
+
+def get_url_context(text: str, position: Tuple[int, int], context_length: int = 50) -> str:
+    """
+    获取URL在文本中的上下文
+    
+    Args:
+        text: 原始文本
+        position: URL在文本中的位置 (start, end)
+        context_length: 上下文长度
+    
+    Returns:
+        包含上下文的文本
+    """
+    start_pos, end_pos = position
+    
+    # 计算上下文的起始和结束位置
+    context_start = max(0, start_pos - context_length)
+    context_end = min(len(text), end_pos + context_length)
+    
+    # 提取上下文
+    context = text[context_start:context_end]
+    
+    # 添加省略号
+    prefix = '...' if context_start > 0 else ''
+    suffix = '...' if context_end < len(text) else ''
+    
+    return f"{prefix}{context}{suffix}"
+
+def build_request_session(proxy: Optional[str] = None, timeout: int = 10) -> requests.Session:
+    """
+    构建请求会话
+    
+    Args:
+        proxy: 代理设置
+        timeout: 超时时间
+    
+    Returns:
+        请求会话对象
+    """
+    session = requests.Session()
+    
+    # 设置默认请求头
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+    })
+    
+    # 设置代理
+    if proxy:
+        proxies = {
+            'http': proxy,
+            'https': proxy
+        }
+        session.proxies.update(proxies)
+        logger.info(f"设置代理: {proxy}")
+    
+    # 设置超时
+    session.timeout = timeout
+    
+    return session
+
+def fetch_url_content(url: str, session: Optional[requests.Session] = None, **kwargs) -> Optional[Tuple[str, dict]]:
+    """
+    获取URL内容或本地文件内容
+    
+    Args:
+        url: 要获取的URL或本地文件路径
+        session: 请求会话对象
+        **kwargs: 其他请求参数
+    
+    Returns:
+        元组 (内容字符串, 头部信息字典)，失败时返回None
+    """
+    try:
+        # 检查是否为本地文件路径
+        if not url.startswith(('http://', 'https://')):
+            # 尝试作为本地文件读取
+            if os.path.isfile(url):
+                logger.info(f"读取本地文件: {url}")
+                with open(url, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                # 返回内容和模拟的头部信息
+                return content, {'Content-Type': 'text/html'}
+            else:
+                logger.error(f"本地文件不存在: {url}")
+                return None
+        
+        # 添加标准浏览器请求头以避免被反爬机制拦截
+        default_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0'
+        }
+        
+        # 合并默认请求头和传入的请求头
+        headers = default_headers.copy()
+        if 'headers' in kwargs:
+            headers.update(kwargs['headers'])
+        kwargs['headers'] = headers
+        
+        # 增加重试机制
+        if session:
+            response = session.get(url, **kwargs)
+        else:
+            # 创建临时会话以设置重试策略
+            temp_session = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(max_retries=3)
+            temp_session.mount('http://', adapter)
+            temp_session.mount('https://', adapter)
+            response = temp_session.get(url, **kwargs)
+        
+        response.raise_for_status()
+        
+        # 尝试自动检测编码
+        response.encoding = response.apparent_encoding
+        
+        return response.text, dict(response.headers)
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"获取URL内容失败: {url}, 错误: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"读取内容失败: {url}, 错误: {str(e)}")
+        return None
+
+# 兼容性函数，为了支持html_detector.py中的导入
+def extract_domain(url: str) -> Optional[str]:
+    """
+    从URL中提取域名（get_domain的别名）
+    
+    Args:
+        url: URL字符串
+    
+    Returns:
+        域名
+    """
+    return get_domain(url)
+
+def extract_urls(text: str) -> List[Dict[str, Any]]:
+    """
+    从文本中提取所有URL
+    
+    Args:
+        text: 要提取URL的文本
+    
+    Returns:
+        包含URL和上下文的字典列表
+    """
+    results = []
+    urls_set = set()  # 用于去重
+    
+    # 增加URL模式匹配
+    url_patterns = [
+        # 标准HTTP/HTTPS URL
+        re.compile(r'(https?://[\\w._~:/?#[\\]@!$&\'()*+,-;=]+)', re.IGNORECASE),
+        # 相对路径
+        re.compile(r'(/\\w[-\\w./?%&=]*)', re.IGNORECASE),
+        # 不带协议的域名
+        re.compile(r'([a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}(?:/[^\s<>"]*)?)', re.IGNORECASE),
+        # JavaScript伪协议
+        re.compile(r'(javascript:[\\w./?%&=;(),\'"`-]+)', re.IGNORECASE),
+        # data URI
+        re.compile(r'(data:[^;]+;base64,[^\s<>"]+)', re.IGNORECASE),
+    ]
+    
+    logger.info(f"开始提取URL，文本长度: {len(text)}")
+    
+    for i, pattern in enumerate(url_patterns):
+        matches = pattern.finditer(text)
+        match_count = 0
+        
+        for match in matches:
+            match_count += 1
+            url = match.group(1)
+            start = max(0, match.start() - 50)
+            end = min(len(text), match.end() + 50)
+            context = text[start:end]
+            
+            # 清理URL
+            url = url.strip('"\'')
+            
+            # 跳过空URL
+            if not url or len(url) < 3:
+                continue
+            
+            # 跳过纯数字或不包含有效字符的URL
+            if re.match(r'^\d+$', url):
+                continue
+            
+            # 去重
+            if url not in urls_set:
+                urls_set.add(url)
+                results.append({
+                    'url': url,
+                    'context': context,
+                    'position': match.start()
+                })
+        
+        logger.info(f"模式 {i} 匹配到 {match_count} 个URL")
+    
+    logger.info(f"共提取到 {len(results)} 个唯一URL")
+    return results
+URL_PATTERNS.extend([
+    # 扩展的HTTP/HTTPS URL
+    re.compile(r'https?://[\w\-\.]+(?:\.[\w\-]+)+[\w\-\._~:/?#[\]@!\$&\'\(\)\*\+,;=.]+', re.IGNORECASE),
+    # 没有协议的域名
+    re.compile(r'\b[\w\-\.]+(?:\.[\w\-]+)+\b(?::\d{1,5})?/[\w\-\._~:/?#[\]@!\$&\'\(\)\*\+,;=.]*', re.IGNORECASE),
+    # JavaScript伪协议
+    re.compile(r'javascript:[^\s"\'>]+', re.IGNORECASE),
+    # data URI
+    re.compile(r'data:[^;]+;base64,[^\s"\'>]+', re.IGNORECASE),
+    # 相对路径
+    re.compile(r'\/[^\s"\'>]+', re.IGNORECASE),
+])
