@@ -166,3 +166,4 @@ class Config:
             'report_file': self.report_file,
             'debug': self.debug
         }
+        

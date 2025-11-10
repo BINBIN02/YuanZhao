@@ -726,3 +726,4 @@ class CSSDetector:
         }
         
         return risk_levels.get(pattern_name, 2)
+        
