@@ -37,6 +37,12 @@ class Config:
         import logging
         self.logger = logging.getLogger('YuanZhao')
         
+        # 无头浏览器配置
+        self.use_headless_browser = False  # 是否启用无头浏览器
+        self.headless_browser = 'chrome'  # 无头浏览器类型
+        self.js_wait_time = 3  # JavaScript执行等待时间（秒）
+        self.headless_timeout = 60  # 无头浏览器超时时间（秒）
+        
         # 文件类型配置
         self.html_extensions = ['.html', '.htm', '.shtml', '.xhtml', '.php', '.asp', '.aspx', '.jsp']
         self.css_extensions = ['.css', '.less', '.scss', '.sass']

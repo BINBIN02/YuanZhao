@@ -333,6 +333,17 @@ class HTMLDetector:
         hidden_elements = find_hidden_elements(content)
         
         for element in hidden_elements:
+            # 确保元素字典包含必要的键
+            if not all(key in element for key in ['type', 'method', 'context']):
+                # 如果缺少必要的键，使用默认值
+                element_type = element.get('type', 'unknown')
+                hiding_method = element.get('method', 'unknown')
+                context = element.get('context', '')
+            else:
+                element_type = element['type']
+                hiding_method = element['method']
+                context = element['context']
+            
             # 计算风险等级
             risk_level = self._calculate_hidden_element_risk(element)
             
@@ -340,11 +351,11 @@ class HTMLDetector:
                 result = {
                     'type': 'hidden_element',
                     'file_path': file_path,
-                    'element_type': element['type'],
-                    'hiding_method': element['method'],
+                    'element_type': element_type,
+                    'hiding_method': hiding_method,
                     'risk_level': risk_level,
-                    'context': element['context'],
-                    'description': f"隐藏的{element['type']}元素，使用{element['method']}技术"
+                    'context': context,
+                    'description': f"隐藏的{element_type}元素，使用{hiding_method}技术"
                 }
                 results.append(result)
         
@@ -363,17 +374,17 @@ class HTMLDetector:
         # 基础风险
         risk_level = 1
         
-        # 根据隐藏方法调整风险
+        # 根据隐藏方法调整风险，确保'method'键存在
         high_risk_methods = ['position:absolute', 'opacity:0', 'clip-path']
-        if any(method in element['method'] for method in high_risk_methods):
+        if 'method' in element and any(method in element['method'] for method in high_risk_methods):
             risk_level += 1
         
         # 检查内容长度，如果内容很长，风险更高
-        if len(element['context']) > 100:
+        if 'context' in element and len(element['context']) > 100:
             risk_level += 1
         
         # 检查是否包含链接
-        if 'href=' in element['context'] or 'src=' in element['context']:
+        if 'context' in element and ('href=' in element['context'] or 'src=' in element['context']):
             risk_level += 2
         
         return risk_level
@@ -402,6 +413,10 @@ class HTMLDetector:
         }
         
         for comment in comments:
+            # 确保comment是字符串类型
+            if not isinstance(comment, str):
+                continue
+                
             for pattern_name, pattern in suspicious_comment_patterns.items():
                 if pattern.search(comment):
                     # 计算风险等级
@@ -421,6 +436,9 @@ class HTMLDetector:
         # 检测注释中的链接
         link_pattern = re.compile(r'href=["\'](https?://[^"\']+)')
         for comment in comments:
+            # 确保comment是字符串类型
+            if not isinstance(comment, str):
+                continue
             for match in link_pattern.finditer(comment):
                 url = match.group(1)
                 result = {
