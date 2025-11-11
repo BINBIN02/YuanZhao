@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="description" content="这是一个测试页面，用于验证渊照暗链扫描工具">
-    <meta name="keywords" content="测试,暗链,扫描,安全">
-    <title>暗链测试页面</title>
+    <meta name="description" content="这是一个测试页面，用于验证渊照暗链扫描工具和无头浏览器检测能力">
+    <meta name="keywords" content="测试,暗链,扫描,安全,无头浏览器">
+    <title>暗链测试页面 - 无头浏览器检测测试</title>
     <style>
         /* 测试CSS中的隐藏技术 */
         .hidden1 {
@@ -52,6 +52,12 @@
             border: 1px solid #ddd;
             border-radius: 5px;
         }
+        .dynamic-content {
+            background-color: #f8f9fa;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #6c757d;
+        }
     </style>
     <script>
         // 测试可疑的JavaScript代码
@@ -73,6 +79,84 @@
         function openNormalLink() {
             window.open('https://www.example.com');
         }
+        
+        // 无头浏览器测试 - 动态生成链接
+        document.addEventListener('DOMContentLoaded', function() {
+            // 1. 延迟生成的可疑链接（无头浏览器应该能捕获）
+            setTimeout(function() {
+                const div = document.createElement('div');
+                div.style.display = 'none';
+                div.innerHTML = '<a href="http://dynamic-evil-link.tk/headless-test">无头浏览器测试 - 延迟生成链接</a>';
+                document.body.appendChild(div);
+                console.log('动态生成的隐藏链接已添加');
+            }, 1000);
+            
+            // 2. 使用不同方式拼接的可疑URL
+            const domainParts = ['gambling', '-hidden', '-site', '.tk'];
+            const fullDomain = 'http://' + domainParts.join('');
+            const linkElement = document.createElement('a');
+            linkElement.href = fullDomain;
+            linkElement.textContent = '拼接域名测试';
+            linkElement.style.display = 'none';
+            document.body.appendChild(linkElement);
+            
+            // 3. 模拟用户交互触发的隐藏链接
+            function simulateUserInteraction() {
+                const hiddenDiv = document.createElement('div');
+                hiddenDiv.className = 'dynamic-content';
+                hiddenDiv.style.display = 'none';
+                hiddenDiv.innerHTML = '<a href="http://interaction-triggered.ml/click-me">交互触发链接</a>';
+                document.body.appendChild(hiddenDiv);
+            }
+            
+            // 模拟鼠标移动事件
+            const mouseMoveEvent = new MouseEvent('mousemove', {
+                bubbles: true,
+                cancelable: true,
+                view: window
+            });
+            document.dispatchEvent(mouseMoveEvent);
+            
+            // 鼠标事件处理器
+            document.addEventListener('mousemove', simulateUserInteraction);
+        });
+        
+        // 4. 使用fetch API加载可疑内容
+        async function loadDynamicContent() {
+            try {
+                // 模拟fetch成功（实际环境中不会真正请求）
+                const response = { ok: true, json: async () => ({
+                    link: 'http://api-loaded-evil.cm/data',
+                    content: '通过API加载的恶意内容'
+                })};
+                
+                // 创建隐藏元素显示API返回的内容
+                const apiContentDiv = document.createElement('div');
+                apiContentDiv.style.opacity = '0';
+                apiContentDiv.innerHTML = `<a href="${(await response.json()).link}">API加载的链接</a>`;
+                document.body.appendChild(apiContentDiv);
+            } catch (error) {
+                console.log('模拟API请求失败');
+            }
+        }
+        
+        // 在页面加载后执行
+        window.onload = function() {
+            loadDynamicContent();
+            
+            // 5. 动态修改DOM属性
+            setTimeout(function() {
+                const dynamicElement = document.createElement('div');
+                dynamicElement.setAttribute('data-malicious', 'http://dom-modified-attack.tf/exploit');
+                document.body.appendChild(dynamicElement);
+            }, 500);
+            
+            // 6. 模拟网络请求
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', 'http://network-request-test.ml/track');
+            xhr.setRequestHeader('X-Test-Header', 'headless-browser-detection');
+            xhr.send();
+        };
     </script>
 </head>
 <body>

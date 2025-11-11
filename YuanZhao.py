@@ -76,6 +76,12 @@ def parse_arguments():
     parser.add_argument('--no-color', action='store_true', help='禁用彩色输出')
     parser.add_argument('--verbose', action='store_true', default=True, help='显示详细日志信息，包括检测过程和调试内容')
     
+    # 无头浏览器选项
+    parser.add_argument('--headless', action='store_true', help='启用无头浏览器扫描 (增强动态内容检测)')
+    parser.add_argument('--browser-type', choices=['chrome'], default='chrome', help='无头浏览器类型 (默认: chrome)')
+    parser.add_argument('--js-wait', type=int, default=3, help='JavaScript执行等待时间 (秒, 默认: 3)')
+    parser.add_argument('--headless-timeout', type=int, default=60, help='无头浏览器超时时间 (秒, 默认: 60)')
+    
     # 添加使用示例
     parser.epilog = '''
 使用示例：
@@ -102,6 +108,9 @@ def parse_arguments():
   
   # 扫描并排除特定文件类型
   python YuanZhao.py ./website --exclude "*.log" "temp/*" "node_modules/"
+  
+  # 使用无头浏览器增强扫描动态内容
+  python YuanZhao.py https://example.com --headless --js-wait 5
   '''
     
     return parser.parse_args()
@@ -203,6 +212,12 @@ def main():
     config.report_type = args.format
     config.report_file = os.path.join(report_dir, f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{args.format}")
     config.debug = args.verbose
+    
+    # 设置无头浏览器配置
+    config.use_headless_browser = args.headless
+    config.headless_browser = args.browser_type
+    config.js_wait_time = args.js_wait
+    config.headless_timeout = args.headless_timeout
     
     # 记录配置
     log_config(logger, config.get_config_dict())

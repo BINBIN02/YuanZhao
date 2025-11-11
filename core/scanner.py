@@ -20,6 +20,7 @@ from core.detector.js_detector import JSDetector
 from core.detector.css_detector import CSSDetector
 from core.detector.special_hiding_detector import SpecialHidingDetector
 from core.detector.keyword_detector import KeywordDetector
+from core.detector.headless_browser_detector import HeadlessBrowserDetector
 
 from utils.file_utils import (
     read_file,
@@ -68,6 +69,17 @@ class Scanner:
         self.css_detector = CSSDetector(config)
         self.special_hiding_detector = SpecialHidingDetector(config)
         self.keyword_detector = KeywordDetector(config)
+        
+        # 初始化无头浏览器检测器（如果启用）
+        self.headless_browser_detector = None
+        if hasattr(config, 'use_headless_browser') and config.use_headless_browser:
+            try:
+                from core.detector.headless_browser_detector import HeadlessBrowserDetector
+                self.headless_browser_detector = HeadlessBrowserDetector(config)
+                self.logger.info("无头浏览器检测器已初始化")
+            except Exception as e:
+                self.logger.error(f"初始化无头浏览器检测器失败: {str(e)}")
+                self.logger.warning("将继续扫描，但不使用无头浏览器功能")
         
         # 用于跟踪已扫描的文件和URL，避免重复扫描
         self.scanned_items = set()
@@ -140,6 +152,14 @@ class Scanner:
         finally:
             # 计算扫描时间
             self.results['scan_time'] = time.time() - start_time
+            
+            # 确保关闭无头浏览器
+            if hasattr(self, 'headless_browser_detector') and self.headless_browser_detector:
+                try:
+                    self.headless_browser_detector.close()
+                    self.logger.info("无头浏览器已关闭")
+                except Exception as e:
+                    self.logger.error(f"关闭无头浏览器时出错: {str(e)}")
             
         return self.results
         
@@ -465,7 +485,18 @@ class Scanner:
             # 发送请求
             self.logger.debug(f"发送请求到: {url}，使用请求头: {headers}")
             response = session.get(url, headers=headers, timeout=timeout, proxies=self.proxy)
-            response.raise_for_status()
+            
+            # 检查响应状态码，但不立即抛出异常，而是记录并继续处理
+            if response.status_code >= 400:
+                self.logger.warning(f"URL {url} 返回错误状态码: {response.status_code}")
+                # 对于404等错误，我们仍然尝试获取内容（如果有），但记录为警告
+                if response.status_code == 404:
+                    self.logger.warning(f"URL {url} 不存在 (404 Not Found)")
+                else:
+                    self.logger.warning(f"URL {url} 访问失败，状态码: {response.status_code}")
+                # 不抛出异常，尝试继续处理响应内容
+            else:
+                self.logger.debug(f"URL {url} 访问成功，状态码: {response.status_code}")
             
             # 尝试自动检测编码
             response.encoding = response.apparent_encoding
@@ -524,88 +555,127 @@ class Scanner:
             
             # HTML内容检测
             if 'text/html' in content_type:
-                    # 基础模式
-                    if self.mode in ['basic', 'advanced', 'all']:
-                        # 关键字检测
-                        keyword_results = self.keyword_detector.detect(url, content)
-                        if keyword_results:
-                            with self.lock:
-                                self.results['keyword_matches'].extend(keyword_results)
-                                for match in keyword_results:
-                                    log_keyword_match(
+                # 基础模式
+                if self.mode in ['basic', 'advanced', 'all']:
+                    # 关键字检测
+                    keyword_results = self.keyword_detector.detect(url, content)
+                    if keyword_results:
+                        with self.lock:
+                            self.results['keyword_matches'].extend(keyword_results)
+                            for match in keyword_results:
+                                log_keyword_match(
+                                    self.logger,
+                                    url,
+                                    match['keyword'],
+                                    match['category'],
+                                    match['weight'],
+                                    match['context']
+                                )
+                          
+                    # HTML检测
+                    html_results = self.html_detector.detect(url, content)
+                    if html_results:
+                        self.logger.debug(f"HTML检测器发现 {len(html_results)} 个问题")
+                        with self.lock:
+                            for issue in html_results:
+                                self.results['total_issues'] += 1
+                               
+                                # 处理URL
+                                if issue['type'] == 'suspicious_url' or 'url' in issue:
+                                    full_url = issue.get('url', '')
+                                    if not full_url:
+                                        # 尝试从上下文提取URL
+                                        context = issue.get('context', '')
+                                        script_match = re.search(r'<script[^>]+src=["\']([^"\']+)', context, re.IGNORECASE)
+                                        if script_match:
+                                            full_url = script_match.group(1)
+                                        else:
+                                            # 直接在内容中搜索特定可疑链接
+                                            suspicious_match = re.search(r'https?://ig5on5\.pro/x2jstzdm\.js', content)
+                                            if suspicious_match:
+                                                full_url = suspicious_match.group(0)
+                                            else:
+                                                continue
+                                            
+                                    # 规范化URL
+                                    if not full_url.startswith(('http://', 'https://')):
+                                        if full_url.startswith('//'):
+                                            full_url = f"https:{full_url}"
+                                        else:
+                                            # 基于当前域名构建完整URL
+                                            parsed = urlparse(url)
+                                            base_url = f"{parsed.scheme}://{parsed.netloc}"
+                                            full_url = base_url + '/' + full_url.lstrip('/')
+                                        
+                                    issue['url'] = full_url
+                                    
+                                    # 添加到结果
+                                    self.results['suspicious_links'].append(issue)
+                                    log_suspicious_url(
                                         self.logger,
                                         url,
-                                        match['keyword'],
-                                        match['category'],
-                                        match['weight'],
-                                        match['context']
+                                        full_url,
+                                        issue.get('risk_level', 1),
+                                        issue.get('context', '')
                                     )
-                        
-                        # HTML检测
-                        html_results = self.html_detector.detect(url, content)
-                        if html_results:
-                            self.logger.debug(f"HTML检测器发现 {len(html_results)} 个问题")
-                            with self.lock:
-                                for issue in html_results:
-                                    self.results['total_issues'] += 1
-                                     
-                                    # 处理URL
-                                    if issue['type'] == 'suspicious_url' or 'url' in issue:
-                                        full_url = issue.get('url', '')
-                                        if not full_url:
-                                            # 尝试从上下文提取URL
-                                            context = issue.get('context', '')
-                                            script_match = re.search(r'<script[^>]+src=["\']([^"\']+)', context, re.IGNORECASE)
-                                            if script_match:
-                                                full_url = script_match.group(1)
-                                            else:
-                                                # 直接在内容中搜索特定可疑链接
-                                                suspicious_match = re.search(r'https?://ig5on5\.pro/x2jstzdm\.js', content)
-                                                if suspicious_match:
-                                                    full_url = suspicious_match.group(0)
+                                    self.logger.warning(f"发现可疑URL: {full_url} (风险等级: {issue.get('risk_level', 1)})")
+                    
+                    # 使用无头浏览器进行增强检测（如果启用）
+                    if self.headless_browser_detector:
+                        self.logger.info(f"使用无头浏览器扫描URL: {url}")
+                        try:
+                            headless_results = self.headless_browser_detector.detect(url, content)
+                            if headless_results:
+                                self.logger.debug(f"无头浏览器检测器发现 {len(headless_results)} 个问题")
+                                with self.lock:
+                                    for issue in headless_results:
+                                        self.results['total_issues'] += 1
+                                        
+                                        # 处理URL
+                                        if issue.get('type') == 'suspicious_url' or 'url' in issue:
+                                            full_url = issue.get('url', '')
+                                            if not full_url.startswith(('http://', 'https://')):
+                                                if full_url.startswith('//'):
+                                                    full_url = f"https:{full_url}"
                                                 else:
-                                                    continue
-                                        
-                                        # 规范化URL
-                                        if not full_url.startswith(('http://', 'https://')):
-                                            if full_url.startswith('//'):
-                                                full_url = f"https:{full_url}"
-                                            else:
-                                                # 基于当前域名构建完整URL
-                                                parsed = urlparse(url)
-                                                base_url = f"{parsed.scheme}://{parsed.netloc}"
-                                                full_url = base_url + '/' + full_url.lstrip('/')
-                                        
-                                        issue['url'] = full_url
-                                        
-                                        # 添加到结果
-                                        self.results['suspicious_links'].append(issue)
-                                        log_suspicious_url(
-                                            self.logger,
-                                            url,
-                                            full_url,
-                                            issue.get('risk_level', 1),
-                                            issue.get('context', '')
-                                        )
-                                        self.logger.warning(f"发现可疑URL: {full_url} (风险等级: {issue.get('risk_level', 1)})")
-                        
-                        # 执行增强可疑脚本检测
-                        self.logger.debug("执行增强可疑脚本检测")
-                        
-                        # 直接搜索特定可疑链接
-                        suspicious_script_matches = re.findall(r'https?://ig5on5\.pro/x2jstzdm\.js', content, re.IGNORECASE)
-                        if suspicious_script_matches:
-                            self.logger.warning(f"直接检测到 {len(suspicious_script_matches)} 个可疑脚本链接")
-                            with self.lock:
-                                for match in suspicious_script_matches:
-                                    self.results['suspicious_links'].append({
-                                        'url': match,
-                                        'risk_level': 3,
-                                        'context': f"在{url_type}中直接发现可疑脚本链接",
-                                        'type': 'suspicious_script_url'
-                                    })
-                                    self.results['total_issues'] += 1
-                                    self.logger.warning(f"直接检测到可疑脚本链接: {match}")
+                                                    # 基于当前域名构建完整URL
+                                                    parsed = urlparse(url)
+                                                    base_url = f"{parsed.scheme}://{parsed.netloc}"
+                                                    full_url = base_url + '/' + full_url.lstrip('/')
+                                                
+                                            issue['url'] = full_url
+                                            
+                                            # 添加到结果
+                                            self.results['suspicious_links'].append(issue)
+                                            log_suspicious_url(
+                                                self.logger,
+                                                url,
+                                                full_url,
+                                                issue.get('risk_level', 2),
+                                                issue.get('context', '')
+                                            )
+                                            self.logger.warning(f"无头浏览器检测发现可疑URL: {full_url} (风险等级: {issue.get('risk_level', 2)})")
+                        except Exception as e:
+                            self.logger.error(f"无头浏览器检测时出错: {str(e)}")
+                            # 继续扫描，不因无头浏览器错误而中断
+                    
+                    # 执行增强可疑脚本检测
+                    self.logger.debug("执行增强可疑脚本检测")
+                    
+                    # 直接搜索特定可疑链接
+                    suspicious_script_matches = re.findall(r'https?://ig5on5\.pro/x2jstzdm\.js', content, re.IGNORECASE)
+                    if suspicious_script_matches:
+                        self.logger.warning(f"直接检测到 {len(suspicious_script_matches)} 个可疑脚本链接")
+                        with self.lock:
+                            for match in suspicious_script_matches:
+                                self.results['suspicious_links'].append({
+                                    'url': match,
+                                    'risk_level': 3,
+                                    'context': f"在{url_type}中直接发现可疑脚本链接",
+                                    'type': 'suspicious_script_url'
+                                })
+                                self.results['total_issues'] += 1
+                                self.logger.warning(f"直接检测到可疑脚本链接: {match}")
                         
                         # 增强检测模式 - 使用多种正则表达式模式
                         enhanced_patterns = [
@@ -734,8 +804,21 @@ class Scanner:
                         self.results['scanned_files'] += 1
                         self.results['total_files'] += 1
 
+        except requests.exceptions.Timeout:
+            self.logger.error(f"扫描{url_type} {url} 时超时: 请求在 {timeout} 秒内未完成")
+            # 确保更新计数器，即使出现超时
+            with self.lock:
+                self.results['total_files'] += 1
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"扫描{url_type} {url} 时请求错误: {str(e)}")
+            # 确保更新计数器，即使出现请求异常
+            with self.lock:
+                self.results['total_files'] += 1
         except Exception as e:
-                self.logger.error(f"扫描{url_type} {url} 时出错: {str(e)}", exc_info=True)
+            self.logger.error(f"扫描{url_type} {url} 时出错: {str(e)}", exc_info=True)
+            # 确保更新计数器，即使出现其他异常
+            with self.lock:
+                self.results['total_files'] += 1
 
 # 扫描器主要功能:
 # 1. 支持文件、目录和URL三种扫描模式
